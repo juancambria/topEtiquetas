@@ -15,16 +15,29 @@ class comandosZebra
 
     /**
      * ZD220 203 dpi: puntos por mm = 203/25.4
-     * Etiqueta física 80 mm × 100 mm.
+     * Etiqueta física 80 mm × 78 mm (ajustada a detección real del equipo).
      */
     const ETIQUETA_ANCHO_MM = 80;
-    const ETIQUETA_ALTO_MM = 100;
+    const ETIQUETA_ALTO_MM = 78;
+    // Largo lógico alineado con la calibración reportada por la ZD220.
+    const ETIQUETA_ALTO_DOTS = 628;
 
     /**
      * Largo lógico extra en mm.
-     * Debe quedar en 0 para no acumular corrimiento entre etiquetas consecutivas.
+     * Ajuste fino de feed en continuo (subir/bajar de a 1 mm).
      */
-    const ETIQUETA_MARGEN_EXTRA_MM_ALTO = 0;
+    const ETIQUETA_MARGEN_EXTRA_MM_ALTO = 1.0;
+
+    /**
+     * Desplazamiento horizontal global en puntos.
+     * Negativo = mueve a la izquierda, positivo = mueve a la derecha.
+     */
+    const ETIQUETA_HOME_X = 0;
+
+    /**
+     * ^PR: velocidad de impresión en ips para reducir drift mecánico.
+     */
+    const ETIQUETA_PRINT_SPEED_IPS = 2;
 
     /**
      * ^LT en puntos. Positivo baja la impresión, negativo la sube (probar de a poco).
@@ -33,10 +46,9 @@ class comandosZebra
 
     /**
      * ^MN define el tipo de media.
-     * Y = etiquetas no continuas con sensor de gap/notch.
-     * Cambiar a M si el rollo usa black mark.
+     * N = continuo (sin detección confiable de gap/notch/black mark).
      */
-    const ETIQUETA_MEDIA_TRACKING = 'Y';
+    const ETIQUETA_MEDIA_TRACKING = 'N';
 
     /**
      * Línea típica de lsusb para Zebra ZD220 USB (si IMPRESORA_IP está vacío).
@@ -141,7 +153,9 @@ class comandosZebra
 
     public static function puntosAltoEtiqueta()
     {
-        return self::mmAPuntos203(self::ETIQUETA_ALTO_MM + self::ETIQUETA_MARGEN_EXTRA_MM_ALTO);
+        $altoBase = (int) self::ETIQUETA_ALTO_DOTS;
+        $extra = self::mmAPuntos203(self::ETIQUETA_MARGEN_EXTRA_MM_ALTO);
+        return $altoBase + $extra;
     }
 
     /** Ancho útil para ^FB centrado con márgenes laterales simétricos (puntos). */
@@ -335,12 +349,18 @@ class comandosZebra
     public function inicioEtiqueta()
     {
         $z = "^XA\n^CI28\n";
+        $pw = self::puntosAnchoEtiqueta();
         $ll = self::puntosAltoEtiqueta();
         $lt = (int) self::ETIQUETA_LABEL_TOP_OFFSET;
+        $lhx = (int) self::ETIQUETA_HOME_X;
+        $pr = (int) self::ETIQUETA_PRINT_SPEED_IPS;
         $mn = self::ETIQUETA_MEDIA_TRACKING;
-        $z .= "^LH0,0\n";
+        $z .= "^LH{$lhx},0\n";
         $z .= "^LS0\n";
+        $z .= "^FWN\n";
+        $z .= "^PW{$pw}\n";
         $z .= "^MN{$mn}\n";
+        $z .= "^PR{$pr}\n";
         $z .= "^LT{$lt}\n";
         $z .= "^LL{$ll}\n";
         return $z;

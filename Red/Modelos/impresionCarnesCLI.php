@@ -41,6 +41,11 @@ if ($cantidad <= 0) {
     die("❌ Cantidad inválida\n");
 }
 
+$maxEtiquetasPorLote = 5;
+if ($cantidad > $maxEtiquetasPorLote) {
+    die("❌ Máximo {$maxEtiquetasPorLote} etiquetas por lote para evitar deriva acumulada\n");
+}
+
 //descripcion que se mostrara en la etiqueta segun codigo interno
 $descripcionCortes = array(
     "813197" => "Tapa de nalga",
@@ -156,10 +161,6 @@ try {
 } catch (Exception $e) {
     die("❌ Impresora: " . $e->getMessage() . "\n");
 }
-
-$pw = comandosZebra::puntosAnchoEtiqueta();
-$ll = comandosZebra::puntosAltoEtiqueta();
-
 echo "→ Imprimiendo etiquetas de carne\n";
 echo "Corte: " . $datos['corte'] . "\n";
 echo "Cantidad: " . $cantidad . "\n\n";
@@ -195,58 +196,71 @@ $layout = array(
     ),
 );
 
-//configuracion de impresion para los datos
-$zpl  = $zebra->inicioEtiqueta();
-$zpl .= "^PON\n";
-$zpl .= "^PW{$pw}\n";
-$zpl .= "^LL{$ll}\n";
-$zpl .= "^MD10\n";
-
-//datos del corte (rotado 90° para compensar etiqueta de costado)
-$zpl .= $zebra->textoRotadoCentrado(
-    $datos['corte'] . " X KG",
-    $layout['corte']['x'],
-    $layout['corte']['y'],
-    $layout['corte']['alto'],
-    $layout['corte']['tam']
-);
-
-//datos del envasado(solo la fecha) (rotado 90°)
-$zpl .= $zebra->textoRotado(
-    $datos['envasado'],
-    $layout['envasado']['x'],
-    $layout['envasado']['y'],
-    $layout['envasado']['tam']
-);
-
-//datos del vencimiento(solo la fecha) (rotado 90°)
-$zpl .= $zebra->textoRotado(
-    $datos['vencimiento'],
-    $layout['vencimiento']['x'],
-    $layout['vencimiento']['y'],
-    $layout['vencimiento']['tam']
-);
-
-//datos del senasa (rotado 90°)
-$zpl .= $zebra->textoRotado(
-    $datos['senasa'],
-    $layout['senasa']['x'],
-    $layout['senasa']['y'],
-    $layout['senasa']['tam']
-);
-
-$zpl .= $zebra->textoRotado(
-    $datos['lote'],
-    $layout['lote']['x'],
-    $layout['lote']['y'],
-    $layout['lote']['tam']
-);
-
-$zpl .= "^PQ{$cantidad},0,1,N\n";
-$zpl .= $zebra->finEtiqueta();
+// Compensacion progresiva para tiradas largas en medio continuo sin gap.
+// Ajustar de a 1 punto segun pruebas (0 desactiva).
+$compensacionDerivaPorEtiqueta = 2;
 
 try {
-    $zebra->envio($zpl);
+    // Resincroniza el inicio del lote en medio continuo (consume 1 etiqueta de ajuste).
+    $zplSync = $zebra->inicioEtiqueta();
+    $zplSync .= "^FXSYNC-INICIO-LOTE^FS\n";
+    $zplSync .= $zebra->finEtiqueta();
+    $zebra->envio($zplSync);
+    usleep(200000);
+
+    for ($i = 0; $i < $cantidad; $i++) {
+        $offsetDeriva = $i * $compensacionDerivaPorEtiqueta;
+
+        //configuracion de impresion para los datos
+        $zpl  = $zebra->inicioEtiqueta();
+        $zpl .= "^PON\n";
+        $zpl .= "^MD10\n";
+
+        //datos del corte (rotado 90° para compensar etiqueta de costado)
+        $zpl .= $zebra->textoRotadoCentrado(
+            $datos['corte'] . " X KG",
+            $layout['corte']['x'],
+            $layout['corte']['y'] + $offsetDeriva,
+            $layout['corte']['alto'],
+            $layout['corte']['tam']
+        );
+
+        //datos del envasado(solo la fecha) (rotado 90°)
+        $zpl .= $zebra->textoRotado(
+            $datos['envasado'],
+            $layout['envasado']['x'],
+            $layout['envasado']['y'] + $offsetDeriva,
+            $layout['envasado']['tam']
+        );
+
+        //datos del vencimiento(solo la fecha) (rotado 90°)
+        $zpl .= $zebra->textoRotado(
+            $datos['vencimiento'],
+            $layout['vencimiento']['x'],
+            $layout['vencimiento']['y'] + $offsetDeriva,
+            $layout['vencimiento']['tam']
+        );
+
+        //datos del senasa (rotado 90°)
+        $zpl .= $zebra->textoRotado(
+            $datos['senasa'],
+            $layout['senasa']['x'],
+            $layout['senasa']['y'] + $offsetDeriva,
+            $layout['senasa']['tam']
+        );
+
+        $zpl .= $zebra->textoRotado(
+            $datos['lote'],
+            $layout['lote']['x'],
+            $layout['lote']['y'] + $offsetDeriva,
+            $layout['lote']['tam']
+        );
+
+        $zpl .= $zebra->finEtiqueta();
+
+        $zebra->envio($zpl);
+        usleep(150000);
+    }
 } catch (Exception $e) {
     die("❌ Impresora: " . $e->getMessage() . "\n");
 }

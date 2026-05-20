@@ -55,9 +55,9 @@ $infoTipos = array(
 $info = $infoTipos[$tipo];
 $resultado = "";
 $error = "";
-$valorModo = isset($_POST['modo_impresion']) ? strtolower(trim($_POST['modo_impresion'])) : 'auto';
-if ($valorModo !== 'usb' && $valorModo !== 'red' && $valorModo !== 'auto') {
-    $valorModo = 'auto';
+$valorModo = isset($_POST['modo_impresion']) ? strtolower(trim($_POST['modo_impresion'])) : '';
+if ($valorModo !== 'usb' && $valorModo !== 'red') {
+    $valorModo = '';
 }
 
 // Procesar formulario
@@ -70,8 +70,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Validaciones básicas
     if (empty($codigo)) {
         $error = "Debe ingresar un código";
-    } elseif ($cantidad <= 0) {
-        $error = "La cantidad debe ser mayor a 0";
+    } elseif ($cantidad < 1 || $cantidad > 5) {
+        $error = "La cantidad debe estar entre 1 y 5 etiquetas";
     } else {
 
         // Validar que el código corresponda al tipo (PHP 5.6 compatible)
@@ -86,8 +86,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (!$validPrefix) {
             $error = "El código debe empezar con " . implode(" o ", $prefijos);
-        } elseif ($modoImpresion !== 'usb' && $modoImpresion !== 'red' && $modoImpresion !== 'auto') {
-            $error = "Modo de impresión inválido";
+        } elseif ($modoImpresion !== 'usb' && $modoImpresion !== 'red') {
+            $error = "Debe seleccionar tipo de conexión: USB o Red";
         } else {
 
             // Ejecutar el script PHP existente
@@ -342,7 +342,7 @@ $valorCantidad = isset($_POST['cantidad']) ? $_POST['cantidad'] : '1';
                     <div class="form-group">
                         <label for="modo_impresion">Modo de impresión:</label>
                         <select id="modo_impresion" name="modo_impresion" required>
-                            <option value="auto" <?php echo $valorModo === 'auto' ? 'selected' : ''; ?>>Auto</option>
+                            <option value="" <?php echo $valorModo === '' ? 'selected' : ''; ?>>Seleccione conexión...</option>
                             <option value="usb" <?php echo $valorModo === 'usb' ? 'selected' : ''; ?>>USB</option>
                             <option value="red" <?php echo $valorModo === 'red' ? 'selected' : ''; ?>>Red</option>
                         </select>
@@ -358,8 +358,12 @@ $valorCantidad = isset($_POST['cantidad']) ? $_POST['cantidad'] : '1';
                             name="cantidad"
                             required
                             min="1"
+                            max="5"
                             value="<?php echo htmlspecialchars($valorCantidad); ?>"
                         >
+                        <small style="display:block;margin-top:6px;color:#666;">
+                            Máximo permitido por lote: 5 etiquetas.
+                        </small>
 
                     </div>
 
