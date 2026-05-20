@@ -1,0 +1,38 @@
+{
+    "sucursal01": {
+        "password": "emp01",
+        "nombre": "Sucursal 01",
+        "codigo": "01",
+        "opciones": ["empanada"]
+    },
+    "sucursal02": {
+        "password": "emp02",
+        "nombre": "Sucursal 02",
+        "codigo": "02",
+        "opciones": ["empanada"]
+    },
+    "sucursal18": {
+        "password": "emp18",
+        "nombre": "Sucursal 18",
+        "codigo": "18",
+        "opciones": ["empanada"]
+    },
+    "sucursal19": {
+        "password": "emp19",
+        "nombre": "Sucursal 19",
+        "codigo": "19",
+        "opciones": ["empanada", "picada"]
+    },
+    "sucursal25": {
+        "password": "emp25",
+        "nombre": "Sucursal 25",
+        "codigo": "25",
+        "opciones": ["empanada", "picada"]
+    },
+    "sucursal99": {
+        "password": "emp99",
+        "nombre": "Sucursal 99",
+        "codigo": "99",
+        "opciones": ["carne"]
+    }
+}
