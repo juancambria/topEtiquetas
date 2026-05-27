@@ -70,8 +70,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Validaciones básicas
     if (empty($codigo)) {
         $error = "Debe ingresar un código";
-    } elseif ($cantidad < 1 || $cantidad > 5) {
-        $error = "La cantidad debe estar entre 1 y 5 etiquetas";
+    // Con límite de 1 a 5 etiquetas:
+    // } elseif ($cantidad < 1 || $cantidad > 5) {
+    //     $error = "La cantidad debe estar entre 1 y 5 etiquetas";
+    // Sin límite de etiquetas:
+    } elseif ($cantidad < 1) {
+        $error = "La cantidad debe ser mayor o igual a 1";
     } else {
 
         // Validar que el código corresponda al tipo (PHP 5.6 compatible)
@@ -358,11 +362,10 @@ $valorCantidad = isset($_POST['cantidad']) ? $_POST['cantidad'] : '1';
                             name="cantidad"
                             required
                             min="1"
-                            max="5"
                             value="<?php echo htmlspecialchars($valorCantidad); ?>"
                         >
                         <small style="display:block;margin-top:6px;color:#666;">
-                            Máximo permitido por lote: 5 etiquetas.
+                            Cantidad mínima permitida: 1 etiqueta.
                         </small>
 
                     </div>

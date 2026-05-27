@@ -41,10 +41,14 @@ if ($cantidad <= 0) {
     die("❌ Cantidad inválida\n");
 }
 
-$maxEtiquetasPorLote = 5;
-if ($cantidad > $maxEtiquetasPorLote) {
-    die("❌ Máximo {$maxEtiquetasPorLote} etiquetas por lote para evitar deriva acumulada\n");
-}
+// Con límite de 1 a 5 etiquetas:
+// $maxEtiquetasPorLote = 5;
+// if ($cantidad > $maxEtiquetasPorLote) {
+//     die("❌ Máximo {$maxEtiquetasPorLote} etiquetas por lote para evitar deriva acumulada\n");
+// }
+
+// Sin límite de etiquetas:
+// no agregar validación extra
 
 //descripcion que se mostrara en la etiqueta segun codigo interno
 $descripcionCortes = array(
@@ -85,7 +89,7 @@ $senasaPorCorte = array(
     "813145" => "4292/128037/14",
     "813195" => "4292/128037/13",
     "813090" => "4292/128037/1",
-    "850001" => "En trámite",
+    "850001" => "4292/128037/18",
     "813091" => "4292/128037/3",
     "813092" => "4292/128037/4",
     "850002" => "4292/128037/15",
@@ -198,7 +202,11 @@ $layout = array(
 
 // Compensacion progresiva para tiradas largas en medio continuo sin gap.
 // Ajustar de a 1 punto segun pruebas (0 desactiva).
-$compensacionDerivaPorEtiqueta = 2;
+// Con compensación progresiva:
+// $compensacionDerivaPorEtiqueta = 2;
+
+// Sin compensación progresiva:
+// no definir compensación extra
 
 try {
     // Resincroniza el inicio del lote en medio continuo (consume 1 etiqueta de ajuste).
@@ -209,7 +217,11 @@ try {
     usleep(200000);
 
     for ($i = 0; $i < $cantidad; $i++) {
-        $offsetDeriva = $i * $compensacionDerivaPorEtiqueta;
+        // Con compensación progresiva:
+        // $offsetDeriva = $i * $compensacionDerivaPorEtiqueta;
+
+        // Sin compensación progresiva:
+        $offsetDeriva = 0;
 
         //configuracion de impresion para los datos
         $zpl  = $zebra->inicioEtiqueta();
