@@ -1,58 +1,31 @@
 <?php
+
+/**
+ * Driver ZPL para impresoras Zebra (USB / red).
+ *
+ * @method static comandosZebra crearSegunConfiguracion(string $modo = null, string $ip = null, int $puerto = null)
+ * @method static comandosZebra crear()
+ */
 class comandosZebra
 {
-    /**
-     * IP/host Zebra por red (RAW puerto 9100).
-     */
     const IMPRESORA_IP = '192.168.11.29';
-
     const IMPRESORA_PUERTO = 9100;
-
-    /**
-     * Ruta hardcodeada para USB local (modo simple).
-     */
     const IMPRESORA_USB_DEVICE = '/dev/usb/lp0';
 
-    /**
-     * ZD220 203 dpi: puntos por mm = 203/25.4
-     * Etiqueta física 80 mm × 78 mm (ajustada a detección real del equipo).
-     */
+    // Empanadas / picadas (ZD220 203 dpi)
     const ETIQUETA_ANCHO_MM = 80;
     const ETIQUETA_ALTO_MM = 78;
-    // Largo lógico alineado con la calibración reportada por la ZD220.
     const ETIQUETA_ALTO_DOTS = 628;
-
-    /**
-     * Largo lógico extra en mm.
-     * Ajuste fino de feed en continuo (subir/bajar de a 1 mm).
-     */
     const ETIQUETA_MARGEN_EXTRA_MM_ALTO = 1.0;
-
-    /**
-     * Desplazamiento horizontal global en puntos.
-     * Negativo = mueve a la izquierda, positivo = mueve a la derecha.
-     */
     const ETIQUETA_HOME_X = 0;
-
-    /**
-     * ^PR: velocidad de impresión en ips para reducir drift mecánico.
-     */
     const ETIQUETA_PRINT_SPEED_IPS = 2;
-
-    /**
-     * ^LT en puntos. Positivo baja la impresión, negativo la sube (probar de a poco).
-     */
     const ETIQUETA_LABEL_TOP_OFFSET = 0;
-
-    /**
-     * ^MN define el tipo de media.
-     * N = continuo (sin detección confiable de gap/notch/black mark).
-     */
     const ETIQUETA_MEDIA_TRACKING = 'N';
 
-    /**
-     * Línea típica de lsusb para Zebra ZD220 USB (si IMPRESORA_IP está vacío).
-     */
+    // Carnes: 100 mm x 80 mm
+    const ETIQUETA_CARNES_ANCHO_MM = 100;
+    const ETIQUETA_CARNES_ALTO_MM = 80;
+
     const IMPRESORA_USB_ID = 'Bus 001 Device 004: ID 0a5f:0164 Zebra Technologies ZTC ZD220-203dpi ZPL';
 
     private $device;
@@ -64,18 +37,16 @@ class comandosZebra
         $this->device = $devicePath;
     }
 
-    /**
-     * Red RAW (típico puerto 9100). El servidor debe poder abrir TCP hasta esta IP.
-     *
-     * @param string $ip
-     * @param int|null $puerto null = IMPRESORA_PUERTO
-     * @return comandosZebra
-     */
+    public static function crear()
+    {
+        return self::crearSegunConfiguracion('auto');
+    }
+
     public static function desdeRed($ip, $puerto = null)
     {
         $ip = trim($ip);
         if ($ip === '') {
-            throw new Exception('IP/host de impresora vacío');
+            throw new Exception('IP/host de impresora vacio');
         }
         if ($puerto === null) {
             $puerto = self::IMPRESORA_PUERTO;
@@ -86,12 +57,6 @@ class comandosZebra
         return $z;
     }
 
-    /**
-     * USB simple hardcodeado (sin detección por lsusb/sysfs).
-     *
-     * @param string|null $devicePath null = IMPRESORA_USB_DEVICE
-     * @return comandosZebra
-     */
     public static function desdeUsbHardcodeado($devicePath = null)
     {
         if ($devicePath === null || trim($devicePath) === '') {
@@ -100,24 +65,12 @@ class comandosZebra
         return new self($devicePath);
     }
 
-    /**
-     * Decide conexión en tiempo de impresión.
-     * - "red": usa IMPRESORA_IP/PUERTO o los parámetros enviados.
-     * - "usb": usa IMPRESORA_USB_DEVICE hardcodeado.
-     * - null/"auto": mantiene fallback por configuración.
-     *
-     * @param string|null $modo "red"|"usb"|"auto"|null
-     * @param string|null $ip
-     * @param int|null $puerto
-     * @return comandosZebra
-     */
     public static function crearSegunConfiguracion($modo = null, $ip = null, $puerto = null)
     {
         if ($modo !== null) {
             $modo = strtolower(trim($modo));
         }
         if ($modo !== null && $modo !== '' && $modo !== 'auto' && $modo !== 'usb' && $modo !== 'red') {
-            // Mantener compatibilidad hacia atrás: cualquier valor no reconocido cae a auto.
             $modo = 'auto';
         }
         if ($modo === 'usb') {
@@ -140,7 +93,11 @@ class comandosZebra
         return self::desdeUsbHardcodeado();
     }
 
-    /** @return int puntos a 203 dpi */
+    public static function mmAPuntos($mm)
+    {
+        return (int) round($mm * 8);
+    }
+
     public static function mmAPuntos203($mm)
     {
         return (int) round((float) $mm * 203.0 / 25.4);
@@ -158,18 +115,11 @@ class comandosZebra
         return $altoBase + $extra;
     }
 
-    /** Ancho útil para ^FB centrado con márgenes laterales simétricos (puntos). */
     public static function puntosAnchoBloqueCentrado($margenCadaLado)
     {
         return max(100, self::puntosAnchoEtiqueta() - 2 * (int) $margenCadaLado);
     }
 
-    /**
-     * Crea la instancia resolviendo /dev/usb/lpN por vendor:product (Linux, driver usblp).
-     *
-     * @param string $identificacion Línea completa de lsusb, o "0a5f:0164"
-     * @return comandosZebra
-     */
     public static function desdeIdentificacionUsb($identificacion)
     {
         $id = self::extraerVendorProductUsb($identificacion);
@@ -186,10 +136,6 @@ class comandosZebra
         return new self($ruta);
     }
 
-    /**
-     * @param string $texto
-     * @return string|null vendor:product en minúsculas, p.ej. "0a5f:0164"
-     */
     public static function extraerVendorProductUsb($texto)
     {
         $texto = trim($texto);
@@ -202,13 +148,6 @@ class comandosZebra
         return null;
     }
 
-    /**
-     * Sube por sysfs desde la ruta del enlace "device" del lp hasta encontrar idVendor/idProduct.
-     * Un solo dirname() falla en algunos kernels / rutas USB (hubs, nombres 1-1.2:1.0, etc.).
-     *
-     * @param string $dir ruta absoluta (p.ej. .../1-2:1.0)
-     * @return string|null vendor:product en minúsculas
-     */
     private static function vendorProductDesdeRutaSysfs($dir)
     {
         $dir = str_replace('\\', '/', $dir);
@@ -226,10 +165,6 @@ class comandosZebra
         return null;
     }
 
-    /**
-     * @param string $vendorProduct vendor:product en cualquier mayúsculas
-     * @return string|null ruta tipo /dev/usb/lp0
-     */
     public static function buscarRutaUsbLp($vendorProduct)
     {
         $want = strtolower($vendorProduct);
@@ -270,41 +205,54 @@ class comandosZebra
 
     public function envio($comando)
     {
+        file_put_contents('/tmp/zebra.zpl', $comando);
+
         if ($this->hostRed !== null) {
             return $this->envioPorRed($comando);
         }
         if ($this->device === null || $this->device === '') {
-            return false;
+            throw new Exception('No se configuro dispositivo de impresion');
         }
+
+        clearstatcache();
+
+        $resultado = @file_put_contents($this->device, $comando);
+        if ($resultado !== false) {
+            return true;
+        }
+
         $tempFile = tempnam(sys_get_temp_dir(), 'zpl_');
         file_put_contents($tempFile, $comando);
         $cmd = "sudo /usr/bin/tee " . escapeshellarg($this->device) . " < " . escapeshellarg($tempFile) . " > /dev/null 2>&1";
         exec($cmd, $out, $ret);
         unlink($tempFile);
-        return $ret === 0;
+
+        if ($ret !== 0) {
+            throw new Exception('No se pudo imprimir por USB');
+        }
+
+        return true;
     }
 
-    /**
-     * @param string $comando ZPL completo (UTF-8 en texto; la impresora usa ^CI28)
-     * @return bool
-     */
     private function envioPorRed($comando)
     {
         $fp = @fsockopen($this->hostRed, $this->puertoRed, $errno, $errstr, 15);
         if (!$fp) {
-            throw new Exception('No se pudo conectar a la impresora ' . $this->hostRed . ':' . $this->puertoRed . ' — ' . $errstr . ' (' . $errno . ')');
+            throw new Exception(
+                'No se pudo conectar a la impresora '
+                . $this->hostRed . ':' . $this->puertoRed
+                . ' - ' . $errstr . ' (' . $errno . ')'
+            );
         }
         stream_set_timeout($fp, 15);
         $len = strlen($comando);
         $ok = @fwrite($fp, $comando);
         fclose($fp);
         if ($ok === false || $ok !== $len) {
-            throw new Exception('Envío incompleto a la impresora por red');
+            throw new Exception('Envio incompleto a la impresora por red');
         }
         return true;
     }
-
-    //FUNCIONES GENERALES
 
     public function texto($texto, $x, $y, $tam = 10)
     {
@@ -327,15 +275,11 @@ class comandosZebra
              . "^FO{$x}," . ($y + $tam + 5) . "^GB500,3,3^FS\n";
     }
 
-    //FUNCIONES AUXILIARES (PARA CARNES)
-
-    // Texto rotado (simple)
-    public function textoRotado($texto, $x, $y, $tam)
+    public function textoRotado($texto, $x, $y, $tam = 30)
     {
         return "^FO{$x},{$y}^A0R,{$tam},{$tam}^FD{$texto}^FS\n";
     }
 
-    // Texto rotado centrado dentro de una columna vertical
     public function textoRotadoCentrado($texto, $x, $y, $altoColumna, $tam)
     {
         return "^FO{$x},{$y}"
@@ -343,8 +287,6 @@ class comandosZebra
             . "^A0R,{$tam},{$tam}"
             . "^FD{$texto}^FS\n";
     }
-
-    //CONTROL DE ETIQUETA
 
     public function inicioEtiqueta()
     {
@@ -364,6 +306,21 @@ class comandosZebra
         $z .= "^LT{$lt}\n";
         $z .= "^LL{$ll}\n";
         return $z;
+    }
+
+    public function inicioEtiquetaCarne()
+    {
+        $pw = self::mmAPuntos(self::ETIQUETA_CARNES_ANCHO_MM);
+        $ll = self::mmAPuntos(self::ETIQUETA_CARNES_ALTO_MM);
+
+        $zpl  = "^XA\n";
+        $zpl .= "^CI28\n";
+        $zpl .= "^PW{$pw}\n";
+        $zpl .= "^LL{$ll}\n";
+        $zpl .= "^PR3\n";
+        $zpl .= "^MD8\n";
+
+        return $zpl;
     }
 
     public function finEtiqueta()
