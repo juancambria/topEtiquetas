@@ -14,6 +14,9 @@ $codigo   = isset($argv[1]) ? $argv[1] : null;
 $cantidad = isset($argv[2]) ? (int)$argv[2] : 1;
 
 $modoImpresion = 'auto';
+$correccionYporEtiqueta = 4;
+$offsetInicialY = 0;
+$modoDetectado = false;
 
 for ($i = 3; isset($argv[$i]); $i++) {
 
@@ -21,22 +24,26 @@ for ($i = 3; isset($argv[$i]); $i++) {
 
     if ($argModo === 'usb' || $argModo === 'red' || $argModo === 'auto') {
         $modoImpresion = $argModo;
-        break;
+        $modoDetectado = true;
+        continue;
     }
 
     if ($argModo === '--usb') {
         $modoImpresion = 'usb';
-        break;
+        $modoDetectado = true;
+        continue;
     }
 
     if ($argModo === '--red') {
         $modoImpresion = 'red';
-        break;
+        $modoDetectado = true;
+        continue;
     }
 
     if ($argModo === '--auto') {
         $modoImpresion = 'auto';
-        break;
+        $modoDetectado = true;
+        continue;
     }
 
     if (strpos($argModo, '--modo=') === 0) {
@@ -45,8 +52,32 @@ for ($i = 3; isset($argv[$i]); $i++) {
 
         if ($valor === 'usb' || $valor === 'red' || $valor === 'auto') {
             $modoImpresion = $valor;
-            break;
+            $modoDetectado = true;
+            continue;
         }
+    }
+
+    if (strpos($argModo, '--correccion=') === 0 || strpos($argModo, '--correcciony=') === 0) {
+        $valorCorreccion = explode('=', $argModo, 2);
+        $valorCorreccion = isset($valorCorreccion[1]) ? trim($valorCorreccion[1]) : '';
+        if ($valorCorreccion !== '' && preg_match('/^-?\d+$/', $valorCorreccion)) {
+            $correccionYporEtiqueta = (int) $valorCorreccion;
+        }
+        continue;
+    }
+
+    if ($modoDetectado && preg_match('/^-?\d+$/', $argModo)) {
+        $correccionYporEtiqueta = (int) $argModo;
+        continue;
+    }
+
+    if (strpos($argModo, '--offset=') === 0 || strpos($argModo, '--offsety=') === 0) {
+        $valorOffset = explode('=', $argModo, 2);
+        $valorOffset = isset($valorOffset[1]) ? trim($valorOffset[1]) : '';
+        if ($valorOffset !== '' && preg_match('/^-?\d+$/', $valorOffset)) {
+            $offsetInicialY = (int) $valorOffset;
+        }
+        continue;
     }
 }
 
@@ -214,75 +245,94 @@ try {
     die("❌ Impresora: " . $e->getMessage() . "\n");
 }
 
+$infoModo = $zebra->ultimoEnvio();
+$modoEfectivo = ($modoImpresion === 'auto' && isset($infoModo['modo']) && $infoModo['modo'] !== null)
+    ? $infoModo['modo']
+    : $modoImpresion;
+
 echo "→ Imprimiendo etiquetas de carne\n";
 echo "Corte: " . $datos['corte'] . "\n";
 echo "Cantidad: " . $cantidad . "\n";
-echo "Modo impresión: " . $modoImpresion . "\n\n";
+echo "Modo impresión solicitado: " . $modoImpresion . "\n";
+echo "Modo impresión efectivo: " . $modoEfectivo . "\n\n";
 
 // correccion por deriva vertical al imprimir varias etiquetas seguidas
-$correccionYporEtiqueta = 7;
+// Se usa la misma base para USB y RED (offset inicial 0) para mantener
+// un comportamiento lo más similar posible entre modos.
+// Si hace falta microcalibrar RED, usar --offset=valor.
+
+$camposEtiqueta = array(
+    'CORTE' => array('x' => 285, 'y' => 100, 'bloque' => 600, 'fuente' => 'A0R', 'tamano' => 46, 'ancho' => 46),
+    'ENVASADO' => array('x' => 191, 'y' => 190, 'fuente' => 'A0R', 'tamano' => 34, 'ancho' => 34),
+    'VENCIMIENTO' => array('x' => 191, 'y' => 480, 'fuente' => 'A0R', 'tamano' => 34, 'ancho' => 34),
+    'SENASA' => array('x' => 161, 'y' => 270, 'fuente' => 'A0R', 'tamano' => 20, 'ancho' => 20),
+    'LOTE' => array('x' => 161, 'y' => 523, 'fuente' => 'A0R', 'tamano' => 20, 'ancho' => 20),
+);
 
 try {
+    $zpl  = "";
 
     for ($i = 0; $i < $cantidad; $i++) {
 
-        $ajusteY = -$correccionYporEtiqueta * $i;
-
-        $zpl  = $zebra->inicioEtiquetaCarne();
-
-
+        $ajusteY = $offsetInicialY - ($correccionYporEtiqueta * $i);
+        $zpl  .= $zebra->inicioEtiquetaCarne();
 
         // CORTE (textoRotadoCentrado):
         // 1) texto, 2) x (columna), 3) y (inicio vertical),
         // 4) altoColumna (área para centrar), 5) tam (tamaño fuente)
         $zpl .= $zebra->textoRotadoCentrado(
             $datos['corte'] . " X KG",
-            285,
-            100 + $ajusteY,
-            600,
-            50
+            $camposEtiqueta['CORTE']['x'],
+            $camposEtiqueta['CORTE']['y'] + $ajusteY,
+            $camposEtiqueta['CORTE']['bloque'],
+            $camposEtiqueta['CORTE']['tamano'],
+            $camposEtiqueta['CORTE']['ancho']
         );
 
         // ENVASADO (textoRotado):
         // 1) texto, 2) x (posición horizontal), 3) y (posición vertical), 4) tam (fuente)
         $zpl .= $zebra->textoRotado(
             $datos['envasado'],
-            190,
-            185 + $ajusteY,//75 antes
-            34
+            $camposEtiqueta['ENVASADO']['x'],
+            $camposEtiqueta['ENVASADO']['y'] + $ajusteY,
+            $camposEtiqueta['ENVASADO']['tamano'],
+            $camposEtiqueta['ENVASADO']['ancho']
         );
 
         // VENCIMIENTO (textoRotado):
         // 1) texto, 2) x, 3) y, 4) tam
         $zpl .= $zebra->textoRotado(
             $datos['vencimiento'],
-            190,
-            470 + $ajusteY,//375 antes
-            34
+            $camposEtiqueta['VENCIMIENTO']['x'],
+            $camposEtiqueta['VENCIMIENTO']['y'] + $ajusteY,
+            $camposEtiqueta['VENCIMIENTO']['tamano'],
+            $camposEtiqueta['VENCIMIENTO']['ancho']
         );
 
         // SENASA (textoRotado):
         // 1) texto, 2) x, 3) y, 4) tam
         $zpl .= $zebra->textoRotado(
             $datos['senasa'],
-            160,
-            265 + $ajusteY,//160 antes
-            20
+            $camposEtiqueta['SENASA']['x'],
+            $camposEtiqueta['SENASA']['y'] + $ajusteY,
+            $camposEtiqueta['SENASA']['tamano'],
+            $camposEtiqueta['SENASA']['ancho']
         );
 
         // LOTE (textoRotado):
         // 1) texto, 2) x, 3) y, 4) tam
         $zpl .= $zebra->textoRotado(
             $datos['lote'],
-            160,
-            518 + $ajusteY,//412 antes
-            20
+            $camposEtiqueta['LOTE']['x'],
+            $camposEtiqueta['LOTE']['y'] + $ajusteY,
+            $camposEtiqueta['LOTE']['tamano'],
+            $camposEtiqueta['LOTE']['ancho']
         );
 
         $zpl .= $zebra->finEtiqueta();
-
-        $zebra->envio($zpl);
     }
+
+    $zebra->envio($zpl);
 
 } catch (Exception $e) {
 
@@ -290,3 +340,90 @@ try {
 }
 
 echo "✔ Se imprimieron " . $cantidad . " etiquetas correctamente\n";
+echo "\n";
+echo "========== DIAGNOSTICO IMPRESION ==========\n";
+echo "Fecha servidor: " . date('d/m/Y H:i:s') . "\n";
+echo "Script usado: " . basename(__FILE__) . "\n";
+echo "Modo impresión solicitado: " . $modoImpresion . "\n";
+echo "Modo impresión efectivo: " . $modoEfectivo . "\n";
+$ultimoEnvio = $zebra->ultimoEnvio();
+echo "IP impresora: " . ($ultimoEnvio['host'] !== null ? $ultimoEnvio['host'] : 'N/A') . "\n";
+echo "Puerto impresora: " . ($ultimoEnvio['puerto'] !== null ? $ultimoEnvio['puerto'] : 'N/A') . "\n";
+echo "Bytes ZPL generados: " . strlen($zpl) . "\n";
+echo "Bytes enviados: " . ($ultimoEnvio['bytes_enviados'] !== null ? $ultimoEnvio['bytes_enviados'] : 'N/A') . "\n";
+echo "Envio completo: " . ($ultimoEnvio['envio_completo'] !== null ? $ultimoEnvio['envio_completo'] : 'N/A') . "\n";
+echo "Log red: " . ($ultimoEnvio['log_red'] !== null ? $ultimoEnvio['log_red'] : 'N/A') . "\n";
+echo "Print tone configurado antes de imprimir: "
+    . ($ultimoEnvio['print_tone_configurado'] !== null ? $ultimoEnvio['print_tone_configurado'] : 'N/A')
+    . "\n";
+echo "Resultado configuracion print.tone: "
+    . ($ultimoEnvio['resultado_config_red'] !== null ? $ultimoEnvio['resultado_config_red'] : 'N/A')
+    . "\n";
+echo "Correccion Y por etiqueta: -" . $correccionYporEtiqueta . " dots\n";
+echo "Offset inicial aplicado: " . $offsetInicialY . " dots\n";
+echo "\n";
+echo "Producto:\n";
+echo "Codigo: " . $codigo . "\n";
+echo "Corte: " . $datos['corte'] . "\n";
+echo "SENASA: " . $datos['senasa'] . "\n";
+echo "Envasado: " . $datos['envasado'] . "\n";
+echo "Vencimiento: " . $datos['vencimiento'] . "\n";
+echo "Lote: " . $datos['lote'] . "\n";
+echo "Cantidad: " . $cantidad . "\n";
+echo "\n";
+echo "Etiqueta:\n";
+echo "Ancho mm: " . comandosZebra::ETIQUETA_CARNES_ANCHO_MM . "\n";
+echo "Alto mm: " . comandosZebra::ETIQUETA_CARNES_ALTO_MM . "\n";
+echo "Print width ZPL: " . comandosZebra::mmAPuntos(comandosZebra::ETIQUETA_CARNES_ANCHO_MM) . "\n";
+echo "Label length ZPL: " . comandosZebra::mmAPuntos(comandosZebra::ETIQUETA_CARNES_ALTO_MM) . "\n";
+echo "Velocidad ZPL: ^PR" . comandosZebra::ETIQUETA_CARNES_PRINT_SPEED_IPS . "\n";
+echo "Darkness ZPL: ^MD" . comandosZebra::ETIQUETA_CARNES_DARKNESS . "\n";
+echo "Codificacion: ^CI28\n";
+echo "\n";
+echo "Campos ZPL:\n";
+foreach ($camposEtiqueta as $nombreCampo => $campo) {
+    echo $nombreCampo . ":\n";
+    echo "  x: " . $campo['x'] . "\n";
+    echo "  y: " . $campo['y'] . "\n";
+    echo "  fuente: " . $campo['fuente'] . "\n";
+    echo "  tamano: " . $campo['tamano'] . "\n";
+    echo "  ancho: " . $campo['ancho'] . "\n";
+    if (isset($campo['bloque'])) {
+        echo "  bloque: " . $campo['bloque'] . "\n";
+    }
+}
+echo "======== FIN DIAGNOSTICO IMPRESION ========\n";
+echo "\n";
+
+if ($modoEfectivo === 'red') {
+    echo "========== ESTADO IMPRESORA RED ==========\n";
+    echo "Conexion consulta: " . comandosZebra::IMPRESORA_IP . ":" . comandosZebra::IMPRESORA_PUERTO . "\n";
+    $variablesZebra = array(
+        'device.languages',
+        'head.resolution.in_dpi',
+        'print.tone',
+        'print.speed',
+        'media.type',
+        'ezpl.print_width',
+        'zpl.label_length',
+        'media.ribbon_out',
+        'media.paper_out',
+        'head.open',
+        'device.pause'
+    );
+    foreach ($variablesZebra as $variableZebra) {
+        echo $variableZebra . ": "
+            . comandosZebra::consultarVariableRed(
+                comandosZebra::IMPRESORA_IP,
+                comandosZebra::IMPRESORA_PUERTO,
+                $variableZebra
+            )
+            . "\n";
+    }
+    echo "======== FIN ESTADO IMPRESORA RED ========\n";
+    echo "\n";
+}
+
+echo "========== ZPL GENERADO ==========\n";
+echo $zpl;
+echo "======== FIN ZPL GENERADO ========\n";

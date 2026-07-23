@@ -59,6 +59,7 @@ $valorModo = isset($_POST['modo_impresion']) ? strtolower(trim($_POST['modo_impr
 if ($valorModo !== 'usb' && $valorModo !== 'red') {
     $valorModo = '';
 }
+$valorCorreccionAltura = isset($_POST['correccion_altura']) ? trim($_POST['correccion_altura']) : '';
 
 // Procesar formulario
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -66,9 +67,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $codigo = isset($_POST['codigo']) ? $_POST['codigo'] : '';
     $cantidad = isset($_POST['cantidad']) ? (int)$_POST['cantidad'] : 0;
     $modoImpresion = $valorModo;
+    $correccionAltura = null;
+
+    if ($tipo === 'carne' && ($modoImpresion === 'usb' || $modoImpresion === 'red')) {
+        if ($valorCorreccionAltura === '' || !preg_match('/^-?\d+$/', $valorCorreccionAltura)) {
+            $error = "Corrección de altura inválida";
+        } else {
+            $correccionAltura = (int) $valorCorreccionAltura;
+        }
+    }
 
     // Validaciones básicas
-    if (empty($codigo)) {
+    if ($error !== "") {
+        // Error de validación ya definido arriba.
+    } elseif (empty($codigo)) {
         $error = "Debe ingresar un código";
     // Con límite de 1 a 5 etiquetas:
     // } elseif ($cantidad < 1 || $cantidad > 5) {
@@ -102,6 +114,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 . escapeshellarg((string)$cantidad) . " "
                 . escapeshellarg((string)$sucursal) . " "
                 . escapeshellarg($modoImpresion);
+            if ($tipo === 'carne' && ($modoImpresion === 'usb' || $modoImpresion === 'red')) {
+                $comando .= " " . escapeshellarg((string)$correccionAltura);
+            }
 
             $output = shell_exec($comando . " 2>&1");
 
@@ -352,6 +367,19 @@ $valorCantidad = isset($_POST['cantidad']) ? $_POST['cantidad'] : '1';
                         </select>
                     </div>
 
+                    <?php if ($tipo === 'carne'): ?>
+                    <div class="form-group" id="grupo_correccion_altura" style="<?php echo ($valorModo === 'usb' || $valorModo === 'red') ? '' : 'display:none;'; ?>">
+                        <label for="correccion_altura">Corrección de altura (dots por etiqueta):</label>
+                        <input
+                            type="number"
+                            id="correccion_altura"
+                            name="correccion_altura"
+                            step="1"
+                            value="<?php echo htmlspecialchars($valorCorreccionAltura); ?>"
+                        >
+                    </div>
+                    <?php endif; ?>
+
                     <div class="form-group">
 
                         <label for="cantidad">Cantidad de etiquetas:</label>
@@ -383,4 +411,30 @@ $valorCantidad = isset($_POST['cantidad']) ? $_POST['cantidad'] : '1';
     </div>
 
 </body>
+
+<script>
+(function() {
+    var tipo = <?php echo json_encode($tipo); ?>;
+    if (tipo !== 'carne') {
+        return;
+    }
+
+    var selectModo = document.getElementById('modo_impresion');
+    var grupoCorreccion = document.getElementById('grupo_correccion_altura');
+    var inputCorreccion = document.getElementById('correccion_altura');
+
+    if (!selectModo || !grupoCorreccion || !inputCorreccion) {
+        return;
+    }
+
+    function actualizarVisibilidadCorreccion() {
+        var mostrarCorreccion = (selectModo.value === 'usb' || selectModo.value === 'red');
+        grupoCorreccion.style.display = mostrarCorreccion ? '' : 'none';
+        inputCorreccion.required = mostrarCorreccion;
+    }
+
+    actualizarVisibilidadCorreccion();
+    selectModo.addEventListener('change', actualizarVisibilidadCorreccion);
+})();
+</script>
 </html>

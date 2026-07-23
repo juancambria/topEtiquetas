@@ -25,12 +25,16 @@ class comandosZebra
     // Carnes: 100 mm x 80 mm
     const ETIQUETA_CARNES_ANCHO_MM = 100;
     const ETIQUETA_CARNES_ALTO_MM = 80;
+    const ETIQUETA_CARNES_DARKNESS = 5;
+    const ETIQUETA_CARNES_PRINT_SPEED_IPS = 3;
+    const IMPRESORA_RED_PRINT_TONE = '5.0';
 
     const IMPRESORA_USB_ID = 'Bus 001 Device 004: ID 0a5f:0164 Zebra Technologies ZTC ZD220-203dpi ZPL';
 
     private $device;
     private $hostRed = null;
     private $puertoRed = null;
+    private $ultimoEnvio = null;
 
     public function __construct($devicePath)
     {
@@ -208,34 +212,35 @@ class comandosZebra
         file_put_contents('/tmp/zebra.zpl', $comando);
 
         if ($this->hostRed !== null) {
+            // Modo RED: imprime directo, el shell script no interviene
             return $this->envioPorRed($comando);
         }
-        if ($this->device === null || $this->device === '') {
-            throw new Exception('No se configuro dispositivo de impresion');
-        }
 
-        clearstatcache();
-
-        $resultado = @file_put_contents($this->device, $comando);
-        if ($resultado !== false) {
-            return true;
-        }
-
-        $tempFile = tempnam(sys_get_temp_dir(), 'zpl_');
-        file_put_contents($tempFile, $comando);
-        $cmd = "sudo /usr/bin/tee " . escapeshellarg($this->device) . " < " . escapeshellarg($tempFile) . " > /dev/null 2>&1";
-        exec($cmd, $out, $ret);
-        unlink($tempFile);
-
-        if ($ret !== 0) {
-            throw new Exception('No se pudo imprimir por USB');
-        }
+        // Modo USB: dejo los archivos para que el shell/cron los imprima
+        file_put_contents('/home/usuario/Documentos/Juan/PROYECTOS/topEtiquetas/Red/archivosGenerados/zebra.zpl', $comando);
+        file_put_contents('/home/usuario/Documentos/Juan/PROYECTOS/topEtiquetas/Red/archivosGenerados/zebra.ok', "1");
+        $this->ultimoEnvio = array(
+            'modo' => 'usb',
+            'host' => null,
+            'puerto' => null,
+            'bytes_generados' => strlen($comando),
+            'bytes_enviados' => null,
+            'envio_completo' => 'PENDIENTE_CRON',
+            'log_red' => null,
+            'print_tone_configurado' => null,
+            'resultado_config_red' => null
+        );
 
         return true;
     }
 
     private function envioPorRed($comando)
     {
+        // LOG específico de lo que se manda por red, con timestamp
+        $logRed = '/tmp/zebra_red_' . date('Ymd_His') . '.zpl';
+        file_put_contents($logRed, $comando);
+        $configRed = $this->configurarPrintToneRed(self::IMPRESORA_RED_PRINT_TONE);
+
         $fp = @fsockopen($this->hostRed, $this->puertoRed, $errno, $errstr, 15);
         if (!$fp) {
             throw new Exception(
@@ -251,9 +256,90 @@ class comandosZebra
         if ($ok === false || $ok !== $len) {
             throw new Exception('Envio incompleto a la impresora por red');
         }
+        $this->ultimoEnvio = array(
+            'modo' => 'red',
+            'host' => $this->hostRed,
+            'puerto' => $this->puertoRed,
+            'bytes_generados' => $len,
+            'bytes_enviados' => $ok,
+            'envio_completo' => 'SI',
+            'log_red' => $logRed,
+            'print_tone_configurado' => self::IMPRESORA_RED_PRINT_TONE,
+            'resultado_config_red' => $configRed
+        );
         return true;
     }
 
+    private function configurarPrintToneRed($tono)
+    {
+        $fp = @fsockopen($this->hostRed, $this->puertoRed, $errno, $errstr, 5);
+        if (!$fp) {
+            return 'ERROR conexion: ' . $errstr . ' (' . $errno . ')';
+        }
+
+        stream_set_timeout($fp, 5);
+        $cmd = '! U1 setvar "print.tone" "' . $tono . '"' . "\r\n";
+        $ok = @fwrite($fp, $cmd);
+        fclose($fp);
+
+        if ($ok === false || $ok !== strlen($cmd)) {
+            return 'ERROR escritura';
+        }
+        return 'OK';
+    }
+
+    public function ultimoEnvio()
+    {
+        if ($this->ultimoEnvio !== null) {
+            return $this->ultimoEnvio;
+        }
+        return array(
+            'modo' => $this->hostRed !== null ? 'red' : 'usb',
+            'host' => $this->hostRed,
+            'puerto' => $this->puertoRed,
+            'bytes_generados' => null,
+            'bytes_enviados' => null,
+            'envio_completo' => null,
+            'log_red' => null,
+            'print_tone_configurado' => null,
+            'resultado_config_red' => null
+        );
+    }
+
+    public static function consultarVariableRed($ip, $puerto, $variable, $timeout = 2)
+    {
+        $fp = @fsockopen($ip, $puerto, $errno, $errstr, $timeout);
+        if (!$fp) {
+            return 'ERROR conexion: ' . $errstr . ' (' . $errno . ')';
+        }
+
+        stream_set_timeout($fp, $timeout);
+        $cmd = '! U1 getvar "' . $variable . '"' . "\r\n";
+        $ok = @fwrite($fp, $cmd);
+        if ($ok === false) {
+            fclose($fp);
+            return 'ERROR escritura';
+        }
+
+        $respuesta = '';
+        while (!feof($fp)) {
+            $parte = @fgets($fp, 1024);
+            if ($parte === false || $parte === '') {
+                break;
+            }
+            $respuesta .= $parte;
+            if (strlen($respuesta) > 4096) {
+                break;
+            }
+        }
+        fclose($fp);
+
+        $respuesta = trim($respuesta);
+        if ($respuesta === '') {
+            return 'Sin respuesta';
+        }
+        return $respuesta;
+    }
     public function texto($texto, $x, $y, $tam = 10)
     {
         return "^FO{$x},{$y}^A0N,{$tam},{$tam}^FD{$texto}^FS\n";
@@ -275,16 +361,22 @@ class comandosZebra
              . "^FO{$x}," . ($y + $tam + 5) . "^GB500,3,3^FS\n";
     }
 
-    public function textoRotado($texto, $x, $y, $tam = 30)
+    public function textoRotado($texto, $x, $y, $tam = 30, $ancho = null)
     {
-        return "^FO{$x},{$y}^A0R,{$tam},{$tam}^FD{$texto}^FS\n";
+        if ($ancho === null) {
+            $ancho = $tam;
+        }
+        return "^FO{$x},{$y}^A0R,{$tam},{$ancho}^FD{$texto}^FS\n";
     }
 
-    public function textoRotadoCentrado($texto, $x, $y, $altoColumna, $tam)
+    public function textoRotadoCentrado($texto, $x, $y, $altoColumna, $tam, $ancho = null)
     {
+        if ($ancho === null) {
+            $ancho = $tam;
+        }
         return "^FO{$x},{$y}"
             . "^FB{$altoColumna},1,0,C"
-            . "^A0R,{$tam},{$tam}"
+            . "^A0R,{$tam},{$ancho}"
             . "^FD{$texto}^FS\n";
     }
 
@@ -317,8 +409,8 @@ class comandosZebra
         $zpl .= "^CI28\n";
         $zpl .= "^PW{$pw}\n";
         $zpl .= "^LL{$ll}\n";
-        $zpl .= "^PR3\n";
-        $zpl .= "^MD8\n";
+        $zpl .= "^PR" . self::ETIQUETA_CARNES_PRINT_SPEED_IPS . "\n";
+        $zpl .= "^MD" . self::ETIQUETA_CARNES_DARKNESS . "\n";
 
         return $zpl;
     }
